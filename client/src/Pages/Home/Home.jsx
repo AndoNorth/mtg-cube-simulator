@@ -28,6 +28,18 @@ export class Home extends Component{
 			alert(error);
 		})
 	}
+
+	startDraft(){
+		fetch(import.meta.env.VITE_BACKEND_API+'startDraft/200', {
+			method: "POST",
+		})
+		.then(data=>{
+			this.setState({cards:data});
+		},(error)=>{
+			alert(error);
+		})
+	}
+
 	render(){
 		const {cards}=this.state
 		let addModalClose=()=>this.setState({addModalShow:false});
@@ -42,6 +54,10 @@ export class Home extends Component{
 			<Button variant='success'
 			onClick={()=>this.getCards()}>
 			Get Cards
+			</Button>
+			<Button variant='secondary'
+			onClick={()=>this.startDraft()}>
+			Start Draft
 			</Button>
 			<AddModal show={this.state.addModalShow}
 			onHide={addModalClose}/>

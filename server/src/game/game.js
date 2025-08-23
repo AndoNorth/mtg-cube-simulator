@@ -2,8 +2,18 @@ const path = require("path"); // npm i path
 const fs = require("fs"); // npm i fs
 const seedrandom = require("seedrandom"); // npm i seedrandom
 
+// constants
 const MAX_NO_PLAYERS = 8;
 
+/**
+ * perform a seeded randomization of input array,
+ * using the provided seed
+ * 
+ * @param {*} array 
+ * @param {*} seed
+ * 
+ * @returns seeded_array
+ */
 function seededShuffle(array, seed) {
   const rng = seedrandom(seed);
   const mapping = {};
@@ -36,16 +46,19 @@ class Pack {
         this.m_chosen_cards = [];
         this.m_pack_id = 0;
     }
+
     addCard(card) {
       this.m_cards.push(card);
       card.m_id_in_pack = this.m_cards.length;
     }
+
     chooseCardWithId(id) {
       const chosen_card = this.m_cards.find(card => card.m_id_in_pack === id);
       this.m_chosen_cards.push(chosen_card);
       chosen_card.m_pick_no = this.m_chosen_cards.length;
       return chosen_card;
     }
+
     cardsLeft(){
       const cards_left = this.m_cards.filter(card => !this.m_chosen_cards.includes(card));
       return cards_left;
@@ -95,10 +108,10 @@ class DraftingSession {
     var shuffled_card_pool = seededShuffle(this.m_card_pool, this.m_random_seed);
     // slice shuffled pool to size
     this.m_draft_pool = shuffled_card_pool.slice(0, min_no_cards);
-
-    this.initializePlayers();
     
     this.m_packs = this.initializePacks(this.m_draft_pool);
+
+    console.log(`session initialized`)
   }
   /**
    * @brief loads list of cards from file into card pool
@@ -119,14 +132,20 @@ class DraftingSession {
       this.m_card_pool.push(card);
     });
   };
+
+  addPlayer(player) {
+    this.m_players.push(player);
+  }
+
   /**
-   * @brief initialize list of players
+   * @brief initialize list of players, fill missing slots with bots
    */
   initializePlayers() {
-    for (let i = 0; i < this.m_no_players; i++) {
-      const player_name = `Player ${i + 1}`;
-      const player = new Player(i, player_name, true);
-      this.m_players.push(player);
+    let no_bots = this.m_no_players - this.m_players.length;
+    for (let i = 0; i < no_bots; i++) {
+      const name = `Bot ${i + 1}`;
+      const bot = new Player("NONE", name, true);
+      this.m_players.push(bot);
     }
   }
   /**
@@ -154,6 +173,8 @@ class DraftingSession {
   }
 
   simulateDraft() {
+    this.initializePlayers();
+
     for (let round = 0; round < this.m_no_packs; round++) {
       // cut packs equal to no_players from all packs
       const packs_in_round = this.m_packs.slice(this.m_no_players * round,

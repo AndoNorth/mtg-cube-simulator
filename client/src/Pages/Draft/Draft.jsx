@@ -5,35 +5,62 @@ import io from 'socket.io-client';
 export class Draft extends Component{
   constructor(props){
     super(props);
-    this.state={sessionId:localStorage.getItem('sessionId') || '',
-    playerName: localStorage.getItem('playerName') || '', players:[],
+    this.state={
       socket: null,
+      session_id: localStorage.getItem('session_id') || '',
+      player_name: localStorage.getItem('player_name') || '',
+      token: localStorage.getItem('token') || '',
+      players:[],
     };
+    this.handleCreateSession=this.handleCreateSession.bind(this);
     this.handleJoinSession=this.handleJoinSession.bind(this);
   }
 
   initSocket = (event) => {
     event.preventDefault();
+    
     const socket = io(import.meta.env.VITE_BACKEND_API);
+    const {token, session_id, player_name} = this.state;
+    // initialize socket + events
+    this.setState({socket: socket}, () => {
+      if (token) {
+        socket.emit('authenticate', token);
+      }
 
-    socket.on('playerJoined', (updatedPlayers) => {
-      this.setState({players:updatedPlayers});
-    });
-  
-    socket.on('sessionError', (error) => {
-      console.error('Session error:', error);
-    });
+      socket.on('authenticated', (new_token) => {
+        console.log('authenticated');
+        if (new_token) {
+          localStorage.setItem('token', new_token);
+          this.setState({token : new_token });
+        }
+      });
 
-    this.setState({socket: socket});
+      socket.on('playerJoined', (current_players) => {
+        console.log(`${current_players}`);
+        this.setState({players:current_players});
+      });
+    
+      socket.on('sessionError', (error) => {
+        console.error('Session error:', error);
+      });
+    });
   }
 
   handleInputChange = (event) => {
     const { name, value } = event.target;
-    this.setState({ [name]: value });
+    this.setState({ [name]: value }, () => {
+      localStorage.setItem(name, value);
+    });
   };
 
   handleCreateSession = (event) => {
     event.preventDefault();
+    this.createSession();
+    const { socket, session_id, player_name }=this.state;
+    socket.emit('joinSession', session_id, player_name);
+  };
+
+  createSession = () => {
     const response = fetch(import.meta.env.VITE_BACKEND_API+'createSession', {
       method: 'POST',
       headers: {
@@ -41,33 +68,32 @@ export class Draft extends Component{
       },
     }).then(response=>response.json())
     .then(data=>{
-      const { sessionId } = data;
-      this.setState({sessionId:sessionId});
-  
-      const { socket, playerName } = this.state;
-      socket.emit('joinSession', sessionId, playerName)
+      const { session_id } = data;
+      this.setState({session_id: session_id});
+      console.log(`session returned: ${session_id}`)
     },(error)=>{
       alert(error);
     });
-  };
+  }
 
   handleJoinSession(event){
-      event.preventDefault();
-      const {socket, playerName}=this.state;
-      const sessionId = event.target.sessionId.value;
-      this.setState({sessionId:sessionId});
-      socket.emit('joinSession', sessionId, playerName);
+    event.preventDefault();
+    const { socket, player_name }=this.state;
+    const session_id = event.target.session_id.value;
+    socket.emit('joinSession', session_id, player_name);
   };
   
   render(){
-    const {sessionId, players, socket}=this.state
+    const {socket, player_name, session_id, players} = this.state;
 
     return(
     <div>
       {socket == null &&
+        <div>
+        {player_name == null &&
           <Form onSubmit={this.initSocket}>
             <Form.Group>
-              <Form.Control type="text" name="playerName" required onChange={this.handleInputChange} placeholder="Enter your name"/>
+              <Form.Control type="text" name="player_name" required onChange={this.handleInputChange} placeholder="Enter your name"/>
             </Form.Group>
             <Form.Group>
               <ButtonToolbar className="justify-content-center">
@@ -75,15 +101,26 @@ export class Draft extends Component{
               </ButtonToolbar>
             </Form.Group>
           </Form>
+        }
+        {player_name != null &&
+          <Form onSubmit={this.initSocket}>
+            <Form.Group>
+              <ButtonToolbar className="justify-content-center">
+                <Button className="mr-2" variant="primary" type="submit">Connect as "{player_name}"</Button>
+              </ButtonToolbar>
+            </Form.Group>
+          </Form>
+        }
+        </div>
       }
       {socket != null && (
         <div>
-        <h2>Draft Session</h2>
-        {!sessionId &&
+          <h2>Draft Session</h2>
+        {!session_id &&
           <div>
           <Form onSubmit={this.handleJoinSession}>
             <Form.Group>
-              <Form.Control type="text" name="sessionId" placeholder="Enter session id"/>
+              <Form.Control type="text" name="session_id" placeholder="Enter session id"/>
             </Form.Group> <br/>
             <Form.Group>
               <ButtonToolbar>
@@ -94,9 +131,9 @@ export class Draft extends Component{
           </Form>
           </div>
         }
-        {sessionId && (
+        {session_id && (
           <div>
-          <p>Session ID: {sessionId}</p>
+            <p>Session ID: {session_id}</p>
           {players.length > 0 && (
             <div>
             <Table className="mt-2" striped bordered hover size="sm">
@@ -107,9 +144,9 @@ export class Draft extends Component{
                 </tr>
               </thead>
               <tbody>
-                {players.map((player) => (
-                <tr key={player.id}>
-                  <td>{player.name}</td>
+                {players.map((name) => (
+                <tr>
+                  <td>{name}</td>
                   <td>
                     <ButtonToolbar>
                       <Button className="mr-2" variant="danger"
