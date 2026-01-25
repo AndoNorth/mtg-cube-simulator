@@ -21,19 +21,3 @@ tests
 cd server
 npm run test
 ```
-
-### external dependencies
-client
-- react-router-dom
-- bootstrap
-- react-bootstrap
-- socket.io-client
-
-server
-- npm i joi@13.1.0
-- npm i express
-- npm i cors
-- npm i body-parser
-- npm i fs
-- npm i path
-- npm i socket.io

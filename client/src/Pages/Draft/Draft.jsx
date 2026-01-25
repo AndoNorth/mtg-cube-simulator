@@ -1,177 +1,229 @@
-import React,{Component} from 'react';
-import {Form, Button, ButtonToolbar, Table} from 'react-bootstrap';
+import React, { Component } from 'react';
+import { Form, Button, Table, Alert, Badge } from 'react-bootstrap';
 import io from 'socket.io-client';
 
-export class Draft extends Component{
-  constructor(props){
-    super(props);
-    this.state={
-      socket: null,
-      session_id: localStorage.getItem('session_id') || '',
-      player_name: localStorage.getItem('player_name') || '',
-      token: localStorage.getItem('token') || '',
-      players:[],
-    };
-    this.handleCreateSession=this.handleCreateSession.bind(this);
-    this.handleJoinSession=this.handleJoinSession.bind(this);
+export class Draft extends Component {
+  socket = null;
+
+  state = {
+    connected: false,
+    player_name: localStorage.getItem('player_name') || '',
+    session_id: localStorage.getItem('session_id'),
+    token: localStorage.getItem('token'),
+
+    // server-driven state
+    owner: null,
+    players: [],
+    canStart: false,
+
+    error: null,
+  };
+
+  componentWillUnmount() {
+    if (this.socket) {
+      this.socket.disconnect();
+    }
   }
 
-  initSocket = (event) => {
-    event.preventDefault();
-    
-    const socket = io(import.meta.env.VITE_BACKEND_API);
-    const {token, session_id, player_name} = this.state;
-    // initialize socket + events
-    this.setState({socket: socket}, () => {
-      if (token) {
-        socket.emit('authenticate', token);
+  // --------------------
+  // Socket connection
+  // --------------------
+  connectSocket = (e) => {
+    e?.preventDefault();
+    if (this.socket) return;
+
+    this.socket = io(import.meta.env.VITE_BACKEND_API);
+
+    this.socket.on('connect', () => {
+      this.setState({ connected: true, error: null });
+
+      if (this.state.token) {
+        this.socket.emit('authenticate', this.state.token);
       }
 
-      socket.on('authenticated', (new_token) => {
-        console.log('authenticated');
-        if (new_token) {
-          localStorage.setItem('token', new_token);
-          this.setState({token : new_token });
-        }
-      });
-
-      socket.on('playerJoined', (current_players) => {
-        console.log(`${current_players}`);
-        this.setState({players:current_players});
-      });
-    
-      socket.on('sessionError', (error) => {
-        console.error('Session error:', error);
-      });
-    });
-  }
-
-  handleInputChange = (event) => {
-    const { name, value } = event.target;
-    this.setState({ [name]: value }, () => {
-      localStorage.setItem(name, value);
-    });
-  };
-
-  handleCreateSession = (event) => {
-    event.preventDefault();
-    this.createSession();
-    const { socket, session_id, player_name }=this.state;
-    socket.emit('joinSession', session_id, player_name);
-  };
-
-  createSession = () => {
-    const response = fetch(import.meta.env.VITE_BACKEND_API+'createSession', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }).then(response=>response.json())
-    .then(data=>{
-      const { session_id } = data;
-      this.setState({session_id: session_id});
-      console.log(`session returned: ${session_id}`)
-    },(error)=>{
-      alert(error);
-    });
-  }
-
-  handleJoinSession(event){
-    event.preventDefault();
-    const { socket, player_name }=this.state;
-    const session_id = event.target.session_id.value;
-    socket.emit('joinSession', session_id, player_name);
-  };
-  
-  render(){
-    const {socket, player_name, session_id, players} = this.state;
-
-    return(
-    <div>
-      {socket == null &&
-        <div>
-        {player_name == null &&
-          <Form onSubmit={this.initSocket}>
-            <Form.Group>
-              <Form.Control type="text" name="player_name" required onChange={this.handleInputChange} placeholder="Enter your name"/>
-            </Form.Group>
-            <Form.Group>
-              <ButtonToolbar className="justify-content-center">
-                <Button className="mr-2" variant="primary" type="submit">Connect to Server</Button>
-              </ButtonToolbar>
-            </Form.Group>
-          </Form>
-        }
-        {player_name != null &&
-          <Form onSubmit={this.initSocket}>
-            <Form.Group>
-              <ButtonToolbar className="justify-content-center">
-                <Button className="mr-2" variant="primary" type="submit">Connect as "{player_name}"</Button>
-              </ButtonToolbar>
-            </Form.Group>
-          </Form>
-        }
-        </div>
+      if (this.state.session_id && this.state.player_name) {
+        this.socket.emit(
+          'joinSession',
+          this.state.session_id,
+          this.state.player_name
+        );
       }
-      {socket != null && (
-        <div>
-          <h2>Draft Session</h2>
-        {!session_id &&
-          <div>
-          <Form onSubmit={this.handleJoinSession}>
+    });
+
+    this.socket.on('authenticated', (token) => {
+      localStorage.setItem('token', token);
+      this.setState({ token });
+    });
+
+    this.socket.on('sessionState', (state) => {
+      this.setState({
+        session_id: state.session_id,
+        owner: state.owner,
+        players: state.players,
+        canStart: state.canStart,
+      });
+    });
+
+    this.socket.on('sessionError', (error) => {
+      this.setState({ error });
+      localStorage.removeItem('session_id');
+    });
+
+    this.socket.on('disconnect', () => {
+      this.setState({ connected: false });
+    });
+  };
+
+  // --------------------
+  // UI handlers
+  // --------------------
+  handleNameChange = (e) => {
+    const player_name = e.target.value;
+    this.setState({ player_name });
+    localStorage.setItem('player_name', player_name);
+  };
+
+  createSession = async () => {
+    const res = await fetch(
+      import.meta.env.VITE_BACKEND_API + 'createSession',
+      { method: 'POST' }
+    );
+    const { session_id } = await res.json();
+
+    localStorage.setItem('session_id', session_id);
+    this.setState({ session_id }, () => {
+      this.socket.emit('joinSession', session_id, this.state.player_name);
+    });
+  };
+
+  joinSession = (e) => {
+    e.preventDefault();
+    const session_id = e.target.session_id.value;
+
+    localStorage.setItem('session_id', session_id);
+    this.setState({ session_id }, () => {
+      this.socket.emit('joinSession', session_id, this.state.player_name);
+    });
+  };
+
+  toggleReady = () => {
+    this.socket.emit('ready', this.state.session_id);
+  };
+
+  startDraft = () => {
+    // future socket event
+    this.socket.emit('startDraft', this.state.session_id);
+  };
+
+  // --------------------
+  // Render
+  // --------------------
+  render() {
+    const {
+      connected,
+      player_name,
+      session_id,
+      players,
+      owner,
+      canStart,
+      error,
+    } = this.state;
+
+    const isOwner = owner === player_name;
+
+    return (
+      <div>
+        {!connected && (
+          <Form onSubmit={this.connectSocket}>
             <Form.Group>
-              <Form.Control type="text" name="session_id" placeholder="Enter session id"/>
-            </Form.Group> <br/>
-            <Form.Group>
-              <ButtonToolbar>
-                <Button className="mr-2" variant="primary" type="submit">Join Session</Button>
-                <Button className="mr-2" variant="danger" onClick={this.handleCreateSession}>Create Session</Button>
-              </ButtonToolbar>
+              <Form.Control
+                value={player_name}
+                onChange={this.handleNameChange}
+                placeholder="Enter your name"
+                required
+              />
             </Form.Group>
+            <Button className="mt-2" type="submit">
+              Connect
+            </Button>
           </Form>
-          </div>
-        }
-        {session_id && (
-          <div>
-            <p>Session ID: {session_id}</p>
-          {players.length > 0 && (
-            <div>
-            <Table className="mt-2" striped bordered hover size="sm">
+        )}
+
+        {error && <Alert variant="danger">{error}</Alert>}
+
+        {connected && !session_id && (
+          <>
+            <Form onSubmit={this.joinSession}>
+              <Form.Control name="session_id" placeholder="Session ID" />
+              <Button type="submit" className="mt-2">
+                Join Session
+              </Button>
+            </Form>
+            <Button
+              variant="secondary"
+              className="mt-2"
+              onClick={this.createSession}
+            >
+              Create Session
+            </Button>
+          </>
+        )}
+
+        {connected && session_id && (
+          <>
+            <h4>
+              Session: {session_id}{' '}
+              {isOwner && <Badge bg="primary">Owner</Badge>}
+            </h4>
+
+            <Table striped bordered size="sm">
               <thead>
                 <tr>
-                  <th>Players</th>
-                  <th>Options</th>
+                  <th>Player</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {players.map((name) => (
-                <tr>
-                  <td>{name}</td>
-                  <td>
-                    <ButtonToolbar>
-                      <Button className="mr-2" variant="danger"
-                      onClick={()=>this.deleteTransaction(trans.id)}>
-                        Ready
-                      </Button>
-                      <Button className="mr-2" variant="danger"
-                      onClick={()=>this.deleteTransaction(trans.id)}>
-                        Leave session
-                      </Button>
-                    </ButtonToolbar>
-                  </td>
-                </tr>
+                {players.map((p) => (
+                  <tr key={p.name}>
+                    <td>
+                      {p.name}{' '}
+                      {p.isOwner && <Badge bg="info">Host</Badge>}
+                    </td>
+                    <td>
+                      {p.ready ? (
+                        <Badge bg="success">Ready</Badge>
+                      ) : (
+                        <Badge bg="secondary">Not ready</Badge>
+                      )}
+                      {!p.connected && (
+                        <Badge bg="warning" className="ms-2">
+                          Disconnected
+                        </Badge>
+                      )}
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </Table>
-            <ul>
-            </ul>
-            </div>
+
+            <Button onClick={this.toggleReady} className="me-2">
+              Toggle Ready
+            </Button>
+
+            {isOwner && (
+              <Button
+                variant="success"
+                disabled={!canStart}
+                onClick={this.startDraft}
+              >
+                Start Draft
+              </Button>
             )}
-          </div>
+          </>
         )}
-        </div>
-      )}
-    </div>
+      </div>
     );
   }
 }
+
