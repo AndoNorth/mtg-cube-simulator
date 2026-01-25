@@ -179,18 +179,18 @@ class DraftingSession {
       // cut packs equal to no_players from all packs
       const packs_in_round = this.m_packs.slice(this.m_no_players * round,
         Math.min((this.m_no_players * (round+1)), this.m_packs.length));
-      let i = 0;
       for (let pick_no = 0; pick_no < this.m_pack_size; pick_no++) {
         // loop through the players
         for (let player_idx = 0; player_idx < this.m_no_players; player_idx++) {
           const current_pack = packs_in_round[player_idx];
           const player = this.m_players[player_idx];
+          // choose a card at random
           const available_picks = current_pack.cardsLeft();
           const random_idx = Math.floor(seedrandom(this.m_random_seed) * available_picks.length);
           const chosen_card = available_picks.at(random_idx-1);
           player.pickCard(current_pack, chosen_card.m_id_in_pack);
         }
-        // shift packs around
+        // shift packs around for the next round
         if (round % 2 === 0) {
           // clockwise
           packs_in_round.push(packs_in_round.shift());
@@ -201,7 +201,7 @@ class DraftingSession {
       }
       // check packs are empty
       if(packs_in_round.every(pack => pack.cardsLeft().length === 0)){
-        // console.log("all cards drafted from packs");
+        console.log("all cards drafted from packs");
       }
     }
   }

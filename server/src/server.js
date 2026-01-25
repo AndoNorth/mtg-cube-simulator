@@ -1,24 +1,19 @@
-require('dotenv').config()
+require('dotenv').config();
 
-const Joi = require("joi"); // npm i joi@13.1.0
-const express = require("express"); // npm i express
-const cors = require("cors") // npm i cors
-const body_parser = require("body-parser"); // npm i body-parser
-const socketIO = require('socket.io'); // npm i socket.io
-const jwt = require('jsonwebtoken') // npm i jsonwebtoken
+const express = require('express');
+const cors = require('cors');
+const body_parser = require('body-parser');
+const socketIO = require('socket.io');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+const fs = require('fs');
 
-const path = require("path"); // npm i path
-const fs = require("fs"); // npm i fs
-
-const { DraftingSession, Player} = require('./game/game')
+const { DraftingSession, Player } = require('./game/game');
 
 const app = express();
-app.use(cors())
-
-const json_parser = body_parser.json();
-app.use(json_parser);
-const encoded_parser = body_parser.urlencoded({ extended: false });
-app.use(encoded_parser);
+app.use(cors());
+app.use(body_parser.json());
+app.use(body_parser.urlencoded({ extended: false }));
 
 // constants
 const MAX_NO_PLAYERS = 8;
@@ -27,134 +22,190 @@ const SECRET_KEY = 'jellybeans';
 // sessions
 const sessions = {};
 
-// Function to generate a unique session ID
+// --------------------
+// Helpers
+// --------------------
+
 function generateSessionId() {
   return Math.random().toString(36).substring(2, 8);
 }
 
-app.post('/createSession', (req, res) => {
-  // repeat until unique session id
-  while (true) {
-    var session_id = generateSessionId();
-    if(!sessions.hasOwnProperty(session_id)){
-      break;
-    }
-  }
+function emitSessionState(io, session_id) {
+  const session = sessions[session_id];
+  if (!session) return;
 
-  var pack_size = 15;
-  var no_packs = 3;
-  var no_players = 8;
-  var draft = new DraftingSession(pack_size, no_packs, no_players);
+  const players = session.m_players.map(p => ({
+    name: p.m_name,
+    ready: !!p.m_ready,
+    connected: !!p.m_id,
+    isOwner: !!p.m_isOwner,
+  }));
+
+  const owner = players.find(p => p.isOwner)?.name || null;
+  const canStart =
+    players.length > 1 && players.every(p => p.ready);
+
+  io.to(session_id).emit('sessionState', {
+    session_id,
+    owner,
+    players,
+    canStart,
+  });
+}
+
+// --------------------
+// REST APIs
+// --------------------
+
+app.post('/createSession', (req, res) => {
+  let session_id;
+  do {
+    session_id = generateSessionId();
+  } while (sessions[session_id]);
+
+  const cards_per_pack = 15;
+  const no_packs = 3;
+  const no_players = 8;
+  const draft = new DraftingSession(cards_per_pack,no_packs,no_players);
   draft.createSession();
 
   sessions[session_id] = draft;
-  console.log(`session created return id: ${session_id}`);
-  
-  res.json({session_id});
+
+  console.log(`Session created: ${session_id}`);
+  res.json({ session_id });
 });
 
-app.post("/startDraft/:id", (req, res) => {
-  console.log("start draft for session id:" + req.params.id);
-  const session_id = req.params.id;
-  sessions[session_id].draft;
+app.get('/cube', (req, res) => {
+  const filename = 'PauperCubeInitial_20231126.txt';
+  const file = path.join('../local/', filename);
+  const data = fs.readFileSync(file, 'utf8');
+
+  res.send(data.split(/\r?\n/));
 });
 
-// REST APIs
-/**
- * get all cards
- */
-app.get("/cube", (req, res) => {
-  const card_names = [];
-  const filename = "PauperCubeInitial_20231126.txt"
-  const file = path.join("../local/", filename)
-  data = fs.readFileSync(file, 'utf8');
-  data.split(/\r?\n/).forEach((data) => {
-    data_str = data.toString()
-    card_names.push(data_str)
-  });
-  // res.send(JSON.stringify(cards));
-  res.send(card_names);
-});
+// --------------------
+// Server
+// --------------------
 
-
-// HTTP Server
-const default_port = 5000;
-const port_no = process.env.PORT || default_port;
+const port_no = process.env.PORT || 5000;
 const server = app.listen(port_no, () => {
   console.log(`Listening on port ${port_no}`);
 });
 
-// socket io event manager
 const io = socketIO(server, {
   cors: {
-    origin: `http://127.0.0.1:5173`, // only for development, this would be changed in production
-    methods: ["GET", "POST"]
-  }
+    origin: 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+  },
 });
 
-// WebSocket server side events 
+// --------------------
+// WebSockets
+// --------------------
+
 io.on('connection', (socket) => {
-  console.log('A user connected');
-  // Auth
+  console.log(`Connected: ${socket.id}`);
+
+  // --------------------
+  // Authentication (reconnect)
+  // --------------------
   socket.on('authenticate', (token) => {
     try {
-      const decoded = jwt.verify(token, SECRET_KEY);
-      const player = sessions[decoded.session_id].m_players
-        .find(player => player.m_name === decoded.player_name);
+      const { session_id, player_name } = jwt.verify(token, SECRET_KEY);
+      const session = sessions[session_id];
+      if (!session) return;
+
+      const player = session.m_players.find(
+        p => p.m_name === player_name
+      );
 
       if (player) {
-        player.m_socket_id = socket.id;
-      } else {
-        console.log(`authentication failed: player doesnt exist`)
+        player.m_id = socket.id;
+        socket.join(session_id);
+        emitSessionState(io, session_id);
       }
     } catch (err) {
-      console.log('authentication failed:', err.message);
+      console.log('Auth failed:', err.message);
     }
   });
-  // Handle joining a draft session
+
+  // --------------------
+  // Join session
+  // --------------------
   socket.on('joinSession', (session_id, player_name) => {
-    if (sessions[session_id]) {
-      if (sessions[session_id].m_players.length >= MAX_NO_PLAYERS) {
-        socket.emit('sessionError', 'Session is full')
-        return;
-      }
-      // authenticate the player
-      const token = jwt.sign({ session_id, player_name}, SECRET_KEY);
-      socket.emit('authenticated', token);
-
-      console.log(`${player_name} joined, session ${session_id}`)
-      // Store the player information in the session
-      const player = new Player(socket.id, player_name, true);
-      sessions[session_id].addPlayer(player)
-      // Join the socket room for the specific session
-      socket.join(session_id);
-
-      // Notify all players in the session about the new player
-      io.to(session_id).emit('playerJoined',
-        sessions[session_id].m_players.map(player => player.m_name));
-    } else {
-      // Handle invalid session
-      socket.emit('sessionError', 'Invalid session ID');
+    const session = sessions[session_id];
+    if (!session) {
+      socket.emit('sessionError', 'Invalid session');
+      return;
     }
+
+    if (session.m_players.length >= MAX_NO_PLAYERS) {
+      socket.emit('sessionError', 'Session is full');
+      return;
+    }
+
+    let player = session.m_players.find(p => p.m_name === player_name);
+
+    if (!player) {
+      player = new Player(socket.id, player_name, false);
+      player.m_ready = false;
+
+      // First player becomes owner
+      if (session.m_players.length === 0) {
+        player.m_isOwner = true;
+      }
+
+      session.addPlayer(player);
+    } else {
+      player.m_id = socket.id;
+    }
+
+    const token = jwt.sign({ session_id, player_name }, SECRET_KEY);
+    socket.emit('authenticated', token);
+
+    socket.join(session_id);
+    emitSessionState(io, session_id);
   });
 
-  socket.on('ready', (session_id, playerName) => {
+  // --------------------
+  // Ready toggle
+  // --------------------
+  socket.on('ready', (session_id) => {
+    const session = sessions[session_id];
+    if (!session) return;
 
+    const player = session.m_players.find(p => p.m_id === socket.id);
+    if (!player) return;
+
+    player.m_ready = !player.m_ready;
+    emitSessionState(io, session_id);
   });
 
-  // Handle disconnect
+  // --------------------
+  // Disconnect
+  // --------------------
   socket.on('disconnect', () => {
+    console.log(`Disconnected: ${socket.id}`);
+
     for (const session_id in sessions) {
       const session = sessions[session_id];
-      const disconnected_player = session.m_players.find(player =>  {
-        // console.log(`${player.m_id} === ${socket.id}`);
-        player.m_id === socket.id
-      });
-      if (disconnected_player) {
-        console.log(`${disconnected_player.m_name} disconnected`);
-        break;
+      const player = session.m_players.find(p => p.m_id === socket.id);
+
+      if (!player) continue;
+
+      player.m_id = null;
+      player.m_ready = false;
+
+      // Transfer ownership if needed
+      if (player.m_isOwner) {
+        player.m_isOwner = false;
+        const nextOwner = session.m_players.find(p => p.m_id);
+        if (nextOwner) nextOwner.m_isOwner = true;
       }
+
+      emitSessionState(io, session_id);
+      break;
     }
   });
-
 });
+
