@@ -5,22 +5,16 @@ import seedrandom from 'seedrandom';
 // --------------------
 // Types
 // --------------------
-export interface Card {
-  m_id: number;
-  m_name: string;
-  m_owner_id: string | number;
-  m_pack_id: number;
-  m_id_in_pack: number;
-  m_pick_no: number;
-}
-
 export class Card {
   m_owner_id: string | number = 0;
   m_pack_id = 0;
   m_id_in_pack = 0;
   m_pick_no = 0;
 
-  constructor(public m_id: number, public m_name: string) {}
+  constructor(
+    public m_id: number,
+    public m_name: string
+  ) {}
 }
 
 // --------------------

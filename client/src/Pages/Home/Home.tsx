@@ -2,7 +2,7 @@ import React, { Component } from 'react';
 import { Button, ButtonToolbar, Table } from 'react-bootstrap';
 import { AddModal } from './AddModal';
 
-interface HomeProps {}
+type HomeProps = Record<string,never>;
 
 interface HomeState {
   cards: string[];

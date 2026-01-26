@@ -13,15 +13,6 @@ import { DraftingSession, Player } from './game/game';
 // --------------------
 // Types
 // --------------------
-interface SessionPlayer {
-  m_id: string | null;
-  m_name: string;
-  m_ready: boolean;
-  m_isOwner: boolean;
-  m_is_bot?: boolean;
-  m_drafted_cards?: any[];
-}
-
 interface TokenPayload {
   session_id: string;
   player_name: string;
@@ -92,7 +83,7 @@ app.post('/createSession', (req: Request, res: Response) => {
   // Initialize with bots
   for (let i = 1; i < no_players; i++) {
     const bot = new Player(`BOT_${i}`, `Bot ${i}`, true);
-    bot.m_ready=true; # bots start ready
+    bot.m_ready=true; // bots start ready
     draft.addPlayer(bot);
   }
 
@@ -136,8 +127,12 @@ io.on('connection', (socket: Socket) => {
         socket.join(decoded.session_id);
         emitSessionState(io, decoded.session_id);
       }
-    } catch (err: any) {
-      console.log('Auth failed:', err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.log('Auth failed:', err.message);
+      } else {
+        console.log('Auth failed')
+      }
     }
   });
 
