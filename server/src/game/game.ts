@@ -6,7 +6,7 @@ import seedrandom from 'seedrandom';
 // Types
 // --------------------
 export class Card {
-  m_owner_id: string | number = 0;
+  m_owner_id: string | null = null; // Fixed: allow null until owned
   m_pack_id = 0;
   m_id_in_pack = 0;
   m_pick_no = 0;
@@ -49,12 +49,14 @@ export class Player {
   m_isOwner: boolean = false;
 
   constructor(
-    public m_id: string,
+    public m_id: string | null, // Socket ID of player; null if disconnected
     public m_name: string,
     public m_is_bot: boolean
   ) {}
 
   pickCard(pack: Pack, id: number): void {
+    if (!this.m_id) return; // Guard: player must have an ID to pick
+
     const card = pack.chooseCardWithId(id);
     if (card) {
       this.m_drafted_cards.push(card);
