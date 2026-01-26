@@ -13,15 +13,6 @@ import { DraftingSession, Player } from './game/game';
 // --------------------
 // Types
 // --------------------
-interface SessionPlayer {
-  m_id: string | null;
-  m_name: string;
-  m_ready: boolean;
-  m_isOwner: boolean;
-  m_is_bot?: boolean;
-  m_drafted_cards?: any[];
-}
-
 interface TokenPayload {
   session_id: string;
   player_name: string;
@@ -55,15 +46,17 @@ function emitSessionState(io: SocketIOServer, session_id: string) {
   const session = sessions[session_id];
   if (!session) return;
 
+  const owner = session.m_players.find(p => p.m_isOwner)?.m_name || null;
+  const canStart =
+  session.m_players.length > 1 &&
+  session.m_players.every(p => p.m_ready && !p.m_is_bot);
+
   const players = session.m_players.map(p => ({
     name: p.m_name,
     ready: !!p.m_ready,
     connected: !!p.m_id,
     isOwner: !!p.m_isOwner,
   }));
-
-  const owner = players.find(p => p.isOwner)?.name || null;
-  const canStart = players.length > 1 && players.every(p => p.ready && !p.is_bot);
 
   io.to(session_id).emit('sessionState', {
     session_id,
@@ -92,7 +85,7 @@ app.post('/createSession', (req: Request, res: Response) => {
   // Initialize with bots
   for (let i = 1; i < no_players; i++) {
     const bot = new Player(`BOT_${i}`, `Bot ${i}`, true);
-    bot.m_ready=true; # bots start ready
+    bot.m_ready=true; // bots start ready
     draft.addPlayer(bot);
   }
 
@@ -136,8 +129,12 @@ io.on('connection', (socket: Socket) => {
         socket.join(decoded.session_id);
         emitSessionState(io, decoded.session_id);
       }
-    } catch (err: any) {
-      console.log('Auth failed:', err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.log('Auth failed:', err.message);
+      } else {
+        console.log('Auth failed')
+      }
     }
   });
 

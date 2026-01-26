@@ -16,7 +16,7 @@ interface DraftState {
   error: string | null;
 }
 
-export class Draft extends Component<{}, DraftState> {
+export class Draft extends Component<Record<string,never>, DraftState> {
   socket: Socket | null = null;
 
   state: DraftState = {
