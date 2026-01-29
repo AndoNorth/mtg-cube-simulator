@@ -2,11 +2,8 @@ import path from 'path';
 import fs from 'fs';
 import seedrandom from 'seedrandom';
 
-// --------------------
-// Types
-// --------------------
 export class Card {
-  m_owner_id: string | null = null; // Fixed: allow null until owned
+  m_owner_id: string | null = null;
   m_pack_id = 0;
   m_id_in_pack = 0;
   m_pick_no = 0;
@@ -17,7 +14,6 @@ export class Card {
   ) {}
 }
 
-// --------------------
 export class Pack {
   m_cards: Card[] = [];
   m_chosen_cards: Card[] = [];
@@ -42,7 +38,6 @@ export class Pack {
   }
 }
 
-// --------------------
 export class Player {
   m_drafted_cards: Card[] = [];
   m_ready: boolean = false;
@@ -55,7 +50,8 @@ export class Player {
   ) {}
 
   pickCard(pack: Pack, id: number): void {
-    if (!this.m_id) return; // Guard: player must have an ID to pick
+    // Allow bots, disallow humans without an id
+    if (!this.m_is_bot && !this.m_id) return;
 
     const card = pack.chooseCardWithId(id);
     if (card) {
@@ -65,7 +61,6 @@ export class Player {
   }
 }
 
-// --------------------
 export class DraftingSession {
   m_players: Player[] = [];
   m_card_pool: Card[] = [];
@@ -83,9 +78,6 @@ export class DraftingSession {
   private m_time_limit = 30;
   private m_random_seed = 50292030;
 
-  // --------------------
-  // Load cards from file
-  // --------------------
   loadCards(): void {
     const filename = 'PauperCubeInitial_20231126.txt';
     const file = path.join('../local/', filename);
@@ -101,7 +93,6 @@ export class DraftingSession {
     });
   }
 
-  // --------------------
   createSession(): void {
     this.loadCards();
 
@@ -118,7 +109,6 @@ export class DraftingSession {
     console.log('Session initialized');
   }
 
-  // --------------------
   addPlayer(player: Player) {
     this.m_players.push(player);
   }
@@ -131,7 +121,6 @@ export class DraftingSession {
     }
   }
 
-  // --------------------
   initializePacks(card_pool: Card[]): Pack[] {
     const packs: Pack[] = [];
     let idx = 0;
@@ -151,7 +140,6 @@ export class DraftingSession {
     return packs;
   }
 
-  // --------------------
   simulateDraft(): void {
     this.initializePlayers();
 
@@ -183,8 +171,6 @@ export class DraftingSession {
     }
   }
 
-  // --------------------
-  // Seeded shuffle
   private seededShuffle(array: Card[], seed: number): Card[] {
     const rng = seedrandom(seed.toString());
     const arrCopy = [...array];
@@ -196,6 +182,7 @@ export class DraftingSession {
   }
 }
 
+// placeholders for scryfall API usage
 export const SCRYFALL_API = 'https://api.scryfall.com/cards/named?fuzzy=';
 export const MAX_REQ_PER_SEC = 10;
 export function Scryfall() {}
