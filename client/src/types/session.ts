@@ -3,6 +3,7 @@ export interface SessionPlayer {
   ready: boolean;
   connected: boolean;
   isOwner: boolean;
+  disconnected: number | null;
 }
 
 export interface SessionState {
