@@ -1,9 +1,12 @@
-import { Socket, Server as SocketIOServer } from 'socket.io';
-import { DraftingSession } from '../game/game';
+import { Socket, Server as SocketIOServer } from "socket.io";
+import { DraftingSession } from "../game/game";
 
 export interface LobbySession extends DraftingSession {
   m_kickedPlayers: Set<string>;
-  m_disconnectTimeouts: Map<string, { timeout: NodeJS.Timeout; expiresAt: number }>;
+  m_disconnectTimeouts: Map<
+    string,
+    { timeout: NodeJS.Timeout; expiresAt: number }
+  >;
   m_started: boolean;
 }
 
@@ -14,11 +17,11 @@ export function getSession(session_id: string) {
 }
 
 export function findPlayerBySocket(session: LobbySession, socket: Socket) {
-  return session.m_players.find(p => p.m_id === socket.id);
+  return session.m_players.find((p) => p.m_id === socket.id);
 }
 
 export function transferOwnership(session: LobbySession) {
-  const nextOwner = session.m_players.find(p => p.m_id && !p.m_is_bot);
+  const nextOwner = session.m_players.find((p) => p.m_id && !p.m_is_bot);
   if (nextOwner) nextOwner.m_isOwner = true;
 }
 
@@ -26,13 +29,14 @@ export function emitSessionState(io: SocketIOServer, session_id: string) {
   const session = sessions[session_id];
   if (!session) return;
 
-  const owner = session.m_players.find(p => p.m_isOwner)?.m_name ?? null;
-  const canStart = session.m_players.filter(p => !p.m_is_bot).length > 1 &&
-                   session.m_players.filter(p => !p.m_is_bot).every(p => p.m_ready);
+  const owner = session.m_players.find((p) => p.m_isOwner)?.m_name ?? null;
+  const canStart =
+    session.m_players.filter((p) => !p.m_is_bot).length >= 1 &&
+    session.m_players.filter((p) => !p.m_is_bot).every((p) => p.m_ready);
 
   const now = Date.now();
 
-  const players = session.m_players.map(p => {
+  const players = session.m_players.map((p) => {
     const info = session.m_disconnectTimeouts.get(p.m_name);
     const disconnected = info ? Math.ceil((info.expiresAt - now) / 1000) : null;
 
@@ -45,15 +49,21 @@ export function emitSessionState(io: SocketIOServer, session_id: string) {
     };
   });
 
-  io.to(session_id).emit('sessionState', { session_id, owner, players, canStart });
+  io.to(session_id).emit("sessionState", {
+    session_id,
+    owner,
+    players,
+    canStart,
+    started: session.m_started,
+  });
 }
 
 export function addPlayerToSession(
   session: LobbySession,
   socketId: string,
-  playerName: string
+  playerName: string,
 ) {
-  const player = session.m_players.find(p => p.m_name === playerName);
+  const player = session.m_players.find((p) => p.m_name === playerName);
 
   if (player) {
     player.m_id = socketId;
@@ -69,7 +79,7 @@ export function addPlayerToSession(
   }
 
   // Try to replace a bot
-  const bot = session.m_players.find(p => p.m_is_bot);
+  const bot = session.m_players.find((p) => p.m_is_bot);
   if (bot) {
     bot.m_name = playerName;
     bot.m_is_bot = false;
@@ -83,7 +93,7 @@ export function addPlayerToSession(
     }
 
     // Make this player the owner if no non-bot owner exists
-    if (!session.m_players.some(p => p.m_isOwner && !p.m_is_bot)) {
+    if (!session.m_players.some((p) => p.m_isOwner && !p.m_is_bot)) {
       bot.m_isOwner = true;
     }
 
@@ -97,9 +107,9 @@ export function addPlayerToSession(
 export function removePlayerFromSession(
   sessionId: string,
   session: LobbySession,
-  socketId: string
+  socketId: string,
 ) {
-  const player = session.m_players.find(p => p.m_id === socketId);
+  const player = session.m_players.find((p) => p.m_id === socketId);
   if (!player) return;
 
   player.m_id = null;
@@ -112,7 +122,7 @@ export function removePlayerFromSession(
 
   // Count remaining connected humans
   const connectedHumans = session.m_players.filter(
-    p => !p.m_is_bot && p.m_id
+    (p) => !p.m_is_bot && p.m_id,
   );
 
   if (connectedHumans.length === 0 && !session.m_started) {
@@ -128,34 +138,50 @@ export function removePlayerFromSession(
 }
 
 export function toggleReady(session: LobbySession, socketId: string) {
-  const player = session.m_players.find(p => p.m_id === socketId);
+  const player = session.m_players.find((p) => p.m_id === socketId);
   if (!player || player.m_is_bot) return;
   player.m_ready = !player.m_ready;
 }
 
-export function reorderPlayer(session: LobbySession, socketId: string, playerName: string, dir: 'up' | 'down') {
-  const owner = session.m_players.find(p => p.m_id === socketId);
+export function reorderPlayer(
+  session: LobbySession,
+  socketId: string,
+  playerName: string,
+  dir: "up" | "down",
+) {
+  const owner = session.m_players.find((p) => p.m_id === socketId);
   if (!owner || !owner.m_isOwner) return;
 
-  const idx = session.m_players.findIndex(p => p.m_name === playerName);
+  const idx = session.m_players.findIndex((p) => p.m_name === playerName);
   if (idx === -1) return;
-  const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+  const swapIdx = dir === "up" ? idx - 1 : idx + 1;
   if (swapIdx < 0 || swapIdx >= session.m_players.length) return;
 
-  [session.m_players[idx], session.m_players[swapIdx]] = [session.m_players[swapIdx], session.m_players[idx]];
+  [session.m_players[idx], session.m_players[swapIdx]] = [
+    session.m_players[swapIdx],
+    session.m_players[idx],
+  ];
 }
 
-export function kickPlayer(io: SocketIOServer, sessionId: string, session: LobbySession, socketId: string, playerName: string) {
-  const owner = session.m_players.find(p => p.m_id === socketId);
+export function kickPlayer(
+  io: SocketIOServer,
+  sessionId: string,
+  session: LobbySession,
+  socketId: string,
+  playerName: string,
+) {
+  const owner = session.m_players.find((p) => p.m_id === socketId);
   if (!owner || !owner.m_isOwner) return;
 
-  const target = session.m_players.find(p => p.m_name === playerName && !p.m_isOwner && !p.m_is_bot);
+  const target = session.m_players.find(
+    (p) => p.m_name === playerName && !p.m_isOwner && !p.m_is_bot,
+  );
   if (!target) return;
 
   session.m_kickedPlayers.add(target.m_name);
   if (target.m_id) {
     const targetSocket = io.sockets.sockets.get(target.m_id);
-    targetSocket?.emit('sessionError', 'You were kicked');
+    targetSocket?.emit("sessionError", "You were kicked");
     targetSocket?.leave(sessionId); // <- pass sessionId instead of session.m_id
     targetSocket?.disconnect(true);
   }
@@ -168,13 +194,16 @@ export function kickPlayer(io: SocketIOServer, sessionId: string, session: Lobby
 }
 
 export function startDraft(session: LobbySession, socketId: string) {
-  const owner = session.m_players.find(p => p.m_id === socketId);
+  const owner = session.m_players.find((p) => p.m_id === socketId);
   if (!owner || !owner.m_isOwner) return;
   session.m_started = true;
 }
 
-export function markPlayerDisconnected(session: LobbySession, playerName: string) {
-  const player = session.m_players.find(p => p.m_name === playerName);
+export function markPlayerDisconnected(
+  session: LobbySession,
+  playerName: string,
+) {
+  const player = session.m_players.find((p) => p.m_name === playerName);
   if (!player) return;
 
   player.m_id = null;
@@ -191,4 +220,3 @@ export function markPlayerDisconnected(session: LobbySession, playerName: string
 
   session.m_disconnectTimeouts.delete(playerName);
 }
-

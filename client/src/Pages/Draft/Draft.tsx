@@ -2,7 +2,9 @@ import React, { Component, FormEvent, ChangeEvent } from 'react';
 import { Form, Button, Alert } from 'react-bootstrap';
 import { io, Socket } from 'socket.io-client';
 import { SessionState } from '../../types/session';
+import { DraftStatePayload } from '../../types/draft';
 import { Lobby } from './Lobby';
+import { DraftView } from './DraftView';
 
 interface DraftState {
   connected: boolean;
@@ -16,6 +18,7 @@ interface DraftState {
   canStart: boolean;
 
   disconnectedPlayers: Record<string, number>;
+  draftData: DraftStatePayload | null;
   error: string | null;
 }
 
@@ -36,6 +39,7 @@ export class Draft extends Component<Record<string, never>, DraftState> {
       players: [],
       disconnectedPlayers: {},
       canStart: false,
+      draftData: null,
 
       error: null,
     };
@@ -106,6 +110,14 @@ export class Draft extends Component<Record<string, never>, DraftState> {
         canStart: state.canStart,
         disconnectedPlayers: newDisconnected,
       });
+    });
+
+    this.socket.on('draftState', (state: DraftStatePayload) => {
+      this.setState({ draftData: state });
+    });
+
+    this.socket.on('draftError', (error: string) => {
+      this.setState({ error });
     });
 
     this.socket.on('sessionError', (error: string) => {
@@ -180,6 +192,10 @@ export class Draft extends Component<Record<string, never>, DraftState> {
     this.socket?.emit('reorderPlayer', this.state.session_id, playerName, dir);
   };
 
+  pickCard = (cardId: number) => {
+    this.socket?.emit('pickCard', this.state.session_id, cardId);
+  };
+
   // --------------------
 
   render() {
@@ -191,6 +207,7 @@ export class Draft extends Component<Record<string, never>, DraftState> {
       players,
       owner,
       canStart,
+      draftData,
       error,
     } = this.state;
 
@@ -232,7 +249,14 @@ export class Draft extends Component<Record<string, never>, DraftState> {
           </>
         )}
 
-        {connected && session_id && (
+        {connected && session_id && draftData && (
+          <DraftView
+            draftState={draftData}
+            onPickCard={this.pickCard}
+          />
+        )}
+
+        {connected && session_id && !draftData && (
           <Lobby
             sessionId={session_id}
             selfName={player_name}

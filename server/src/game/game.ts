@@ -25,7 +25,7 @@ export class Pack {
 
   addCard(card: Card) {
     this.m_cards.push(card);
-    card.m_id_in_pack = this.m_cards.length;
+    card.m_id_in_pack = this.m_cards.length - 1;
   }
 
   chooseCardWithId(id: number): Card | undefined {

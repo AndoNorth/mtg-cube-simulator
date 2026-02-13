@@ -11,5 +11,6 @@ export interface SessionState {
   owner: string | null;
   players: SessionPlayer[];
   canStart: boolean;
+  started: boolean;
 }
 

@@ -18,8 +18,9 @@ Each package has its own `CLAUDE.md` with package-specific commands, structure, 
 ## Communication Protocol
 
 - **REST**: `POST /createSession`, `GET /cube`
-- **WebSocket events**: `joinSession`, `ready`, `leaveSession`, `kickPlayer`, `reorderPlayer`, `startDraft`, `disconnect`
+- **WebSocket events**: `joinSession`, `ready`, `leaveSession`, `kickPlayer`, `reorderPlayer`, `startDraft`, `pickCard`, `disconnect`
 - Server broadcasts `sessionState` to all players in a room after every state mutation
+- Server emits per-player `draftState` during draft phase (round/pick info, available cards, picked cards)
 
 ## CI Pipeline
 
