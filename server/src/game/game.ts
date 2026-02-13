@@ -2,6 +2,10 @@ import path from 'path';
 import fs from 'fs';
 import seedrandom from 'seedrandom';
 
+/* =======================
+ * Core domain objects
+ * ======================= */
+
 export class Card {
   m_owner_id: string | null = null;
   m_pack_id = 0;
@@ -21,7 +25,7 @@ export class Pack {
 
   addCard(card: Card) {
     this.m_cards.push(card);
-    card.m_id_in_pack = this.m_cards.length;
+    card.m_id_in_pack = this.m_cards.length - 1;
   }
 
   chooseCardWithId(id: number): Card | undefined {
@@ -36,6 +40,10 @@ export class Pack {
   cardsLeft(): Card[] {
     return this.m_cards.filter(c => !this.m_chosen_cards.includes(c));
   }
+
+  isEmpty(): boolean {
+    return this.cardsLeft().length === 0;
+  }
 }
 
 export class Player {
@@ -44,13 +52,13 @@ export class Player {
   m_isOwner: boolean = false;
 
   constructor(
-    public m_id: string | null, // Socket ID of player; null if disconnected
+    public m_id: string | null, // socket id or null
     public m_name: string,
     public m_is_bot: boolean
   ) {}
 
   pickCard(pack: Pack, id: number): void {
-    // Allow bots, disallow humans without an id
+    // Humans must be connected; bots always allowed
     if (!this.m_is_bot && !this.m_id) return;
 
     const card = pack.chooseCardWithId(id);
@@ -61,11 +69,27 @@ export class Player {
   }
 }
 
+/* =======================
+ * Draft runtime state
+ * ======================= */
+
 export class DraftingSession {
+  // Static setup
   m_players: Player[] = [];
   m_card_pool: Card[] = [];
   m_draft_pool: Card[] = [];
   m_packs: Pack[] = [];
+
+  // Draft runtime
+  m_started = false;
+  m_currentRound = 0;
+  m_currentPick = 0;
+
+  /** Active pack per player name */
+  m_packByPlayer: Map<string, Pack> = new Map();
+
+  /** Which players have picked this step */
+  m_pickedThisStep: Set<string> = new Set();
 
   constructor(
     public m_pack_size: number,
@@ -75,8 +99,11 @@ export class DraftingSession {
     this.m_no_players = Math.min(m_no_players, 8);
   }
 
-  private m_time_limit = 30;
   private m_random_seed = 50292030;
+
+  /* =======================
+   * Session setup
+   * ======================= */
 
   loadCards(): void {
     const filename = 'PauperCubeInitial_20231126.txt';
@@ -96,17 +123,21 @@ export class DraftingSession {
   createSession(): void {
     this.loadCards();
 
-    const min_no_cards = this.m_pack_size * this.m_no_packs * this.m_no_players;
+    const min_no_cards =
+      this.m_pack_size * this.m_no_packs * this.m_no_players;
+
     if (this.m_card_pool.length < min_no_cards) {
       console.error('Not enough cards in pool to start draft');
       return;
     }
 
-    const shuffled_card_pool = this.seededShuffle(this.m_card_pool, this.m_random_seed);
-    this.m_draft_pool = shuffled_card_pool.slice(0, min_no_cards);
-    this.m_packs = this.initializePacks(this.m_draft_pool);
+    const shuffled = this.seededShuffle(
+      this.m_card_pool,
+      this.m_random_seed
+    );
 
-    console.log('Session initialized');
+    this.m_draft_pool = shuffled.slice(0, min_no_cards);
+    this.m_packs = this.initializePacks(this.m_draft_pool);
   }
 
   addPlayer(player: Player) {
@@ -116,8 +147,9 @@ export class DraftingSession {
   initializePlayers() {
     const no_bots = this.m_no_players - this.m_players.length;
     for (let i = 0; i < no_bots; i++) {
-      const bot = new Player(`BOT_${i + 1}`, `Bot ${i + 1}`, true);
-      this.m_players.push(bot);
+      this.m_players.push(
+        new Player(`BOT_${i + 1}`, `Bot ${i + 1}`, true)
+      );
     }
   }
 
@@ -125,20 +157,126 @@ export class DraftingSession {
     const packs: Pack[] = [];
     let idx = 0;
 
-    for (let i = 0; i < this.m_no_players; i++) {
-      for (let j = 0; j < this.m_no_packs; j++) {
+    for (let p = 0; p < this.m_no_players; p++) {
+      for (let r = 0; r < this.m_no_packs; r++) {
         const pack = new Pack();
-        pack.m_pack_id = j + 1;
+        pack.m_pack_id = r + 1;
+
         for (let k = 0; k < this.m_pack_size; k++) {
           const card = card_pool[idx++];
           pack.addCard(card);
-          card.m_pack_id = j + 1;
+          card.m_pack_id = r + 1;
         }
+
         packs.push(pack);
       }
     }
+
     return packs;
   }
+
+  /* =======================
+   * Draft lifecycle
+   * ======================= */
+
+  /**
+   * Called once by lobby owner
+   * Pure state initialization — no sockets, no timers
+   */
+  startDraft(): void {
+    if (this.m_started) return;
+
+    this.initializePlayers();
+
+    this.m_started = true;
+    this.m_currentRound = 0;
+    this.m_currentPick = 0;
+    this.m_pickedThisStep.clear();
+    this.m_packByPlayer.clear();
+
+    this.assignInitialPacks();
+  }
+
+  /**
+   * Assign packs for the current round & pick
+   */
+  assignInitialPacks(): void {
+    const start =
+      this.m_currentRound * this.m_no_players;
+
+    const packsForRound = this.m_packs.slice(
+      start,
+      start + this.m_no_players
+    );
+
+    this.m_players.forEach((player, i) => {
+      this.m_packByPlayer.set(player.m_name, packsForRound[i]);
+    });
+  }
+
+  /**
+   * Called when a player (or bot) finishes picking
+   */
+  markPicked(playerName: string) {
+    this.m_pickedThisStep.add(playerName);
+  }
+
+  allPlayersPicked(): boolean {
+    return this.m_pickedThisStep.size === this.m_players.length;
+  }
+
+  /**
+   * Rotate packs after a completed pick
+   */
+  advancePick(): void {
+    this.m_pickedThisStep.clear();
+    this.m_currentPick++;
+
+    const rotateLeft = this.m_currentRound % 2 === 0;
+    const packs = this.m_players.map(
+      p => this.m_packByPlayer.get(p.m_name)!
+    );
+
+    if (rotateLeft) {
+      packs.push(packs.shift()!);
+    } else {
+      packs.unshift(packs.pop()!);
+    }
+
+    this.m_players.forEach((p, i) => {
+      this.m_packByPlayer.set(p.m_name, packs[i]);
+    });
+
+    if (this.m_currentPick >= this.m_pack_size) {
+      this.advanceRound();
+    }
+  }
+
+  advanceRound(): void {
+    this.m_currentRound++;
+    this.m_currentPick = 0;
+    this.assignInitialPacks();
+  }
+
+  /* =======================
+   * Utilities
+   * ======================= */
+
+  private seededShuffle(array: Card[], seed: number): Card[] {
+    const rng = seedrandom(seed.toString());
+    const copy = [...array];
+
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+
+    return copy;
+  }
+
+  /* =======================
+   * Testing
+   * ======================= */
 
   simulateDraft(): void {
     this.initializePlayers();
@@ -170,20 +308,14 @@ export class DraftingSession {
       }
     }
   }
-
-  private seededShuffle(array: Card[], seed: number): Card[] {
-    const rng = seedrandom(seed.toString());
-    const arrCopy = [...array];
-    for (let i = arrCopy.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [arrCopy[i], arrCopy[j]] = [arrCopy[j], arrCopy[i]];
-    }
-    return arrCopy;
-  }
 }
 
-// placeholders for scryfall API usage
-export const SCRYFALL_API = 'https://api.scryfall.com/cards/named?fuzzy=';
+/* =======================
+ * Placeholders
+ * ======================= */
+
+export const SCRYFALL_API =
+  'https://api.scryfall.com/cards/named?fuzzy=';
 export const MAX_REQ_PER_SEC = 10;
 export function Scryfall() {}
 

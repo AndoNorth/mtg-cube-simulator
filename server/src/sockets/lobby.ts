@@ -1,6 +1,7 @@
 import { Socket, Server as SocketIOServer } from 'socket.io';
-import { sessions, getSession, addPlayerToSession, removePlayerFromSession, toggleReady, reorderPlayer, kickPlayer, startDraft, emitSessionState, markPlayerDisconnected, LobbySession } from '../state/sessions';
+import { sessions, getSession, addPlayerToSession, removePlayerFromSession, toggleReady, reorderPlayer, kickPlayer, emitSessionState, markPlayerDisconnected, LobbySession } from '../state/sessions';
 import { Player } from '../game/game';
+import { initiateDraft, emitDraftState, handleBotPicks, checkAndAdvance } from '../state/draft';
 
 const DISCONNECT_TIMEOUT_MS = 30000;
 
@@ -24,6 +25,10 @@ export function registerLobbySockets(io: SocketIOServer) {
 
       socket.join(session_id);
       emitSessionState(io, session_id);
+
+      if (session.m_started) {
+        emitDraftState(io, session_id);
+      }
     });
 
     socket.on('ready', session_id => {
@@ -61,8 +66,10 @@ export function registerLobbySockets(io: SocketIOServer) {
     socket.on('startDraft', session_id => {
       const s = getSession(session_id);
       if(s){
-        startDraft(s, socket.id);
+        const owner = s.m_players.find(p => p.m_id === socket.id);
+        if (!owner || !owner.m_isOwner) return;
         emitSessionState(io, session_id);
+        initiateDraft(io, session_id, s);
       }
     });
 
@@ -76,6 +83,12 @@ export function registerLobbySockets(io: SocketIOServer) {
         const timeout = setTimeout(() => {
           markPlayerDisconnected(session, player.m_name);
           emitSessionState(io, sessionId);
+
+          if (session.m_started) {
+            handleBotPicks(session);
+            checkAndAdvance(session);
+            emitDraftState(io, sessionId);
+          }
         }, DISCONNECT_TIMEOUT_MS);
 
         session.m_disconnectTimeouts.set(player.m_name, { timeout, expiresAt });
